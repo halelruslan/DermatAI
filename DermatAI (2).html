@@ -1,0 +1,1557 @@
+<!DOCTYPE html>
+<html lang="ru" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DermatAI — ИИ-скрининг кожи и ранний анализ меланомы</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f7ff',
+                            100: '#e0effe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, #38bdf8, transparent);
+            box-shadow: 0 0 15px #38bdf8;
+            animation: scan 2s infinite ease-in-out;
+        }
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 95%; }
+            100% { top: 0%; }
+        }
+
+        /* Живой анимированный фон */
+        .live-bg {
+            position: fixed;
+            inset: 0;
+            z-index: -1;
+            background: linear-gradient(-45deg, #f0f7ff, #e0f2fe, #f0f9ff, #ecfeff, #f0f7ff);
+            background-size: 400% 400%;
+            animation: gradientShift 18s ease infinite;
+            overflow: hidden;
+        }
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Плавающие частицы */
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(2, 132, 199, 0.15);
+            animation: float 20s infinite linear;
+            pointer-events: none;
+        }
+        .particle:nth-child(1) { width: 80px; height: 80px; left: 10%; top: 20%; animation-duration: 25s; animation-delay: 0s; }
+        .particle:nth-child(2) { width: 50px; height: 50px; left: 70%; top: 10%; animation-duration: 22s; animation-delay: -5s; }
+        .particle:nth-child(3) { width: 120px; height: 120px; left: 40%; top: 60%; animation-duration: 30s; animation-delay: -10s; }
+        .particle:nth-child(4) { width: 40px; height: 40px; left: 85%; top: 50%; animation-duration: 18s; animation-delay: -3s; }
+        .particle:nth-child(5) { width: 90px; height: 90px; left: 20%; top: 80%; animation-duration: 28s; animation-delay: -8s; }
+        .particle:nth-child(6) { width: 60px; height: 60px; left: 55%; top: 30%; animation-duration: 24s; animation-delay: -12s; }
+        .particle:nth-child(7) { width: 70px; height: 70px; left: 5%; top: 50%; animation-duration: 26s; animation-delay: -7s; }
+        .particle:nth-child(8) { width: 45px; height: 45px; left: 90%; top: 75%; animation-duration: 20s; animation-delay: -15s; }
+
+        @keyframes float {
+            0% { transform: translateY(0) translateX(0) scale(1); opacity: 0.4; }
+            25% { transform: translateY(-40px) translateX(20px) scale(1.05); opacity: 0.6; }
+            50% { transform: translateY(-80px) translateX(-15px) scale(0.95); opacity: 0.3; }
+            75% { transform: translateY(-40px) translateX(25px) scale(1.1); opacity: 0.5; }
+            100% { transform: translateY(0) translateX(0) scale(1); opacity: 0.4; }
+        }
+
+        /* Стили для макета тела */
+        .body-map-container {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .body-svg {
+            max-width: 100%;
+            height: auto;
+            cursor: crosshair;
+        }
+        .body-region {
+            fill: #e0f2fe;
+            stroke: #0284c7;
+            stroke-width: 1.5;
+            transition: fill 0.2s, opacity 0.2s;
+            cursor: pointer;
+        }
+        .body-region:hover {
+            fill: #bae6fd;
+        }
+        .body-region.selected {
+            fill: #7dd3fc;
+            stroke: #0369a1;
+            stroke-width: 2.5;
+        }
+        .mole-marker {
+            fill: #ef4444;
+            stroke: #fff;
+            stroke-width: 2;
+            pointer-events: none;
+            filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+        }
+        .view-btn.active {
+            background-color: #0284c7;
+            color: white;
+            border-color: #0284c7;
+        }
+
+        /* Камера и оверлей */
+        .camera-container {
+            position: relative;
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto;
+            border-radius: 1.25rem;
+            overflow: hidden;
+            background: #0f172a;
+            aspect-ratio: 3/4;
+        }
+        .camera-video, .camera-canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+        .camera-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            z-index: 10;
+        }
+        .guide-circle {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 180px;
+            height: 180px;
+            transform: translate(-50%, -50%);
+            border: 2px dashed rgba(56, 189, 248, 0.85);
+            border-radius: 50%;
+            box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
+        }
+        .guide-crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 24px;
+            height: 24px;
+            transform: translate(-50%, -50%);
+        }
+        .guide-crosshair::before, .guide-crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(56, 189, 248, 0.9);
+        }
+        .guide-crosshair::before {
+            left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%);
+        }
+        .guide-crosshair::after {
+            top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%);
+        }
+        .abcde-label {
+            position: absolute;
+            font-size: 10px;
+            font-weight: 700;
+            color: #38bdf8;
+            background: rgba(15, 23, 42, 0.75);
+            padding: 2px 6px;
+            border-radius: 4px;
+            letter-spacing: 0.03em;
+        }
+        .ruler-scale {
+            position: absolute;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 160px;
+            height: 18px;
+            background: linear-gradient(90deg, 
+                transparent 0%, transparent 48%, 
+                #38bdf8 48%, #38bdf8 52%, 
+                transparent 52%, transparent 100%);
+            border-left: 2px solid #38bdf8;
+            border-right: 2px solid #38bdf8;
+        }
+        .ruler-scale::after {
+            content: '≈ 10 мм';
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            font-weight: 700;
+            color: #38bdf8;
+            white-space: nowrap;
+        }
+        .detect-point {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f43f5e;
+            border: 1.5px solid #fff;
+            box-shadow: 0 0 6px rgba(244, 63, 94, 0.8);
+            transform: translate(-50%, -50%);
+            animation: pulse-point 1.4s ease-in-out infinite;
+        }
+        @keyframes pulse-point {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+            50% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.7; }
+        }
+        .live-scan-line {
+            position: absolute;
+            left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, transparent, #22d3ee, transparent);
+            box-shadow: 0 0 12px #22d3ee;
+            animation: liveScan 2.2s linear infinite;
+            z-index: 15;
+            display: none;
+        }
+        @keyframes liveScan {
+            0% { top: 8%; }
+            100% { top: 92%; }
+        }
+        .camera-status {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            right: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 20;
+            pointer-events: none;
+        }
+        .status-pill {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            background: rgba(15, 23, 42, 0.8);
+            color: #e0f2fe;
+            backdrop-filter: blur(4px);
+        }
+        .status-pill.live {
+            background: rgba(16, 185, 129, 0.85);
+            color: white;
+        }
+        .capture-flash {
+            position: absolute;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 30;
+            transition: opacity 0.15s;
+        }
+        .capture-flash.active {
+            opacity: 0.85;
+        }
+
+        /* Табы источника фото */
+        .source-tab.active {
+            background: #0284c7;
+            color: white;
+            border-color: #0284c7;
+        }
+
+        /* Симптомы чекбоксы */
+        .symptom-card {
+            transition: all 0.2s;
+        }
+        .symptom-card.selected {
+            border-color: #0284c7;
+            background: #f0f9ff;
+            box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
+        }
+
+        /* Прогресс-точки ABCDE */
+        .abcde-bar {
+            height: 6px;
+            border-radius: 9999px;
+            background: #e5e7eb;
+            overflow: hidden;
+        }
+        .abcde-fill {
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.8s ease;
+        }
+    </style>
+</head>
+<body class="text-gray-800 font-sans antialiased">
+
+    <!-- Живой фон -->
+    <div class="live-bg">
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+    </div>
+
+    <!-- Навигация -->
+    <header class="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-10 h-10 bg-brand-600 rounded-xl flex items-center justify-center text-white text-xl font-bold shadow-md shadow-brand-500/20">
+                    <i class="fa-solid fa-microscope"></i>
+                </div>
+                <span class="text-xl font-extrabold text-gray-900 tracking-tight">Dermat<span class="text-brand-600">AI</span></span>
+            </div>
+            <nav class="hidden md:flex items-center gap-8 text-sm font-semibold text-gray-600">
+                <a href="#about" class="hover:text-brand-600 transition">О технологии</a>
+                <a href="#scanner" class="hover:text-brand-600 transition">Проверить родинку</a>
+                <a href="#features" class="hover:text-brand-600 transition">Преимущества</a>
+                <a href="#faq" class="hover:text-brand-600 transition">Частые вопросы</a>
+            </nav>
+            <a href="#scanner" class="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2.5 rounded-xl font-semibold shadow-lg shadow-brand-500/25 transition text-sm">
+                Начать скрининг
+            </a>
+        </div>
+    </header>
+
+    <!-- Главный баннер (Hero) -->
+    <section class="relative pt-12 pb-20 lg:pt-20 lg:pb-28 overflow-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid lg:grid-cols-2 gap-12 items-center">
+                <div>
+                    <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-brand-100/80 text-brand-700 text-xs font-bold uppercase tracking-wider mb-6">
+                        <i class="fa-solid fa-shield-halved"></i> Адаптировано для Central Asian Skins (III-V фототипы)
+                    </div>
+                    <h1 class="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-900 tracking-tight leading-tight mb-6">
+                        Проверьте подозрительную родинку <span class="text-brand-600">за 1 минуту</span> с помощью ИИ
+                    </h1>
+                    <p class="text-lg text-gray-600 mb-8 leading-relaxed">
+                        Рак кожи излечим в <strong>90% случаев</strong> при раннем обнаружении. Наша нейросеть обучена с учетом физиологии смуглой кожи и выявляет даже опасную акральную меланому. Снимайте прямо с камеры смартфона — с живой диаграммой и разметкой точек.
+                    </p>
+                    <div class="flex flex-col sm:flex-row gap-4">
+                        <a href="#scanner" class="inline-flex items-center justify-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-xl shadow-brand-600/30 transition">
+                            <i class="fa-solid fa-camera"></i> Проверить сейчас
+                        </a>
+                        <a href="#about" class="inline-flex items-center justify-center gap-2 bg-white/80 hover:bg-white text-gray-700 border border-gray-200 px-8 py-4 rounded-xl font-bold text-lg transition backdrop-blur-sm">
+                            Как это работает
+                        </a>
+                    </div>
+                    <div class="mt-8 flex flex-wrap items-center gap-4 sm:gap-6 text-xs font-semibold text-gray-500">
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 text-sm"></i> Анонимно</div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 text-sm"></i> Стандарт ABCDE + ITA</div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 text-sm"></i> Камера + файл</div>
+                        <div class="flex items-center gap-2"><i class="fa-solid fa-check text-emerald-500 text-sm"></i> Точность до 95%</div>
+                    </div>
+                </div>
+
+                <!-- Визуальный макет смартфона -->
+                <div class="relative flex justify-center">
+                    <div class="w-full max-w-[340px] bg-gray-900 rounded-[48px] p-4 shadow-2xl border-4 border-gray-800 relative">
+                        <div class="w-32 h-4 bg-gray-800 rounded-full mx-auto mb-4"></div>
+                        <div class="bg-white rounded-[36px] overflow-hidden p-5 shadow-inner min-h-[500px] flex flex-col justify-between">
+                            <div class="flex items-center justify-between text-xs font-bold text-gray-400">
+                                <span>DermatAI Screening</span>
+                                <i class="fa-solid fa-wifi"></i>
+                            </div>
+                            <div class="my-auto text-center py-6">
+                                <div class="relative w-48 h-48 mx-auto rounded-2xl overflow-hidden border-2 border-dashed border-brand-500 p-2 mb-4">
+                                    <img src="https://images.unsplash.com/photo-1588776814546-1ffcf47267a5?auto=format&fit=crop&w=400&q=80" class="w-full h-full object-cover rounded-xl" alt="Родинка">
+                                    <div class="absolute inset-0 bg-brand-500/10 backdrop-blur-[1px]"></div>
+                                    <div class="scan-line"></div>
+                                </div>
+                                <span class="inline-block px-3 py-1 bg-amber-100 text-amber-800 text-xs font-bold rounded-full animate-pulse">
+                                    ИИ-сканирование: Анализ краев...
+                                </span>
+                            </div>
+                            <div class="bg-gray-50 rounded-2xl p-3 border border-gray-100 text-left">
+                                <p class="text-[11px] text-gray-500 font-semibold mb-1">Проверка параметров:</p>
+                                <div class="grid grid-cols-2 gap-1 text-[10px] font-bold">
+                                    <span class="text-emerald-600">✓ Симметрия: Ок</span>
+                                    <span class="text-amber-600">⚠ Край: Неровный</span>
+                                    <span class="text-emerald-600">✓ Цвет: Гомогенный</span>
+                                    <span class="text-emerald-600">✓ Диаметр: < 6мм</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Интерактивный веб-сканер / Опросник -->
+    <section id="scanner" class="py-16 bg-white/80 backdrop-blur-sm border-y border-gray-200">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6">
+            <div class="text-center mb-10">
+                <h2 class="text-3xl font-bold text-gray-900 mb-3">Онлайн ИИ-экспресс проверка</h2>
+                <p class="text-gray-600">Пройдите короткий анамнез, укажите расположение, сфотографируйте или загрузите снимок — получите развёрнутую оценку риска с разметкой точек</p>
+            </div>
+
+            <div class="bg-white/90 rounded-3xl p-6 sm:p-10 border border-gray-200 shadow-xl backdrop-blur-sm">
+                <!-- Прогресс бар -->
+                <div class="mb-8">
+                    <div class="flex justify-between text-xs font-bold text-gray-500 mb-2">
+                        <span id="step-label">Шаг 1 из 4: Профиль и Анамнез</span>
+                        <span id="step-percent">25%</span>
+                    </div>
+                    <div class="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                        <div id="progress-bar" class="h-full bg-brand-600 transition-all duration-300 w-1/4"></div>
+                    </div>
+                    <!-- Мини-индикаторы шагов -->
+                    <div class="flex justify-between mt-3 text-[10px] font-bold text-gray-400">
+                        <span id="dot-1" class="text-brand-600">● Профиль</span>
+                        <span id="dot-2">○ Фото</span>
+                        <span id="dot-3">○ Симптомы</span>
+                        <span id="dot-4">○ Результат</span>
+                    </div>
+                </div>
+
+                <!-- Шаг 1: Анамнез + Макет тела -->
+                <div id="step-1" class="space-y-6">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-3">Ваш пол</label>
+                        <div class="grid grid-cols-2 gap-4">
+                            <button type="button" class="gender-btn p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 flex items-center justify-center gap-3 font-bold text-gray-700 transition" onclick="selectGender(this)">
+                                <i class="fa-solid fa-mars text-xl text-blue-500"></i> Мужской
+                            </button>
+                            <button type="button" class="gender-btn p-4 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 flex items-center justify-center gap-3 font-bold text-gray-700 transition" onclick="selectGender(this)">
+                                <i class="fa-solid fa-venus text-xl text-pink-500"></i> Женский
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2">Ваш возраст</label>
+                        <input type="range" min="12" max="90" value="30" class="w-full accent-brand-600" oninput="document.getElementById('age-val').innerText = this.value">
+                        <div class="text-right text-sm font-bold text-brand-600"><span id="age-val">30</span> лет</div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-3">Фототип кожи (по Фитцпатрику)</label>
+                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            <button type="button" class="skin-btn p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 text-center text-xs font-bold" onclick="selectSkin(this)">
+                                <div class="w-full h-6 bg-[#f7ead0] rounded-md mb-2 border"></div> Type I-II
+                            </button>
+                            <button type="button" class="skin-btn p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 text-center text-xs font-bold border-brand-500 ring-2 ring-brand-500/20" onclick="selectSkin(this)">
+                                <div class="w-full h-6 bg-[#d9b18f] rounded-md mb-2 border"></div> Type III
+                            </button>
+                            <button type="button" class="skin-btn p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 text-center text-xs font-bold" onclick="selectSkin(this)">
+                                <div class="w-full h-6 bg-[#ad7a56] rounded-md mb-2 border"></div> Type IV
+                            </button>
+                            <button type="button" class="skin-btn p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 text-center text-xs font-bold" onclick="selectSkin(this)">
+                                <div class="w-full h-6 bg-[#704225] rounded-md mb-2 border"></div> Type V
+                            </button>
+                            <button type="button" class="skin-btn p-3 rounded-xl border-2 border-gray-200 bg-white hover:border-brand-500 text-center text-xs font-bold" onclick="selectSkin(this)">
+                                <div class="w-full h-6 bg-[#362112] rounded-md mb-2 border"></div> Type VI
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Макет человека для выбора расположения родинки -->
+                    <div class="pt-4 border-t border-gray-200">
+                        <label class="block text-sm font-bold text-gray-700 mb-3">
+                            <i class="fa-solid fa-map-location-dot text-brand-600 mr-1"></i>
+                            Где находится родинка? <span class="text-gray-400 font-normal">(нажмите на участок тела)</span>
+                        </label>
+                        
+                        <div class="flex justify-center gap-3 mb-4">
+                            <button type="button" id="view-front" class="view-btn active px-5 py-2 rounded-lg border-2 border-gray-200 text-sm font-bold transition" onclick="switchBodyView('front')">
+                                Спереди
+                            </button>
+                            <button type="button" id="view-back" class="view-btn px-5 py-2 rounded-lg border-2 border-gray-200 text-sm font-bold transition" onclick="switchBodyView('back')">
+                                Сзади
+                            </button>
+                        </div>
+
+                        <div class="body-map-container relative bg-gradient-to-b from-sky-50 to-white rounded-2xl border border-gray-200 p-4 flex justify-center">
+                            <!-- FRONT VIEW SVG -->
+                            <svg id="body-front" class="body-svg" viewBox="0 0 200 480" width="200" height="480" xmlns="http://www.w3.org/2000/svg">
+                                <ellipse class="body-region" data-region="Голова / Лицо" cx="100" cy="45" rx="32" ry="38" onclick="selectBodyRegion(event, this)"/>
+                                <rect class="body-region" data-region="Шея" x="88" y="80" width="24" height="22" rx="4" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Грудь / Живот" d="M60,100 L140,100 L145,220 L55,220 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Правая рука" d="M140,105 L175,115 L185,200 L165,205 L150,130 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Левая рука" d="M60,105 L25,115 L15,200 L35,205 L50,130 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Правая нога" d="M105,220 L140,220 L145,400 L120,410 L110,230 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Левая нога" d="M95,220 L60,220 L55,400 L80,410 L90,230 Z" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Правая стопа" cx="132" cy="420" rx="18" ry="12" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Левая стопа" cx="68" cy="420" rx="18" ry="12" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Правая кисть" cx="175" cy="215" rx="12" ry="10" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Левая кисть" cx="25" cy="215" rx="12" ry="10" onclick="selectBodyRegion(event, this)"/>
+                                <circle id="marker-front" class="mole-marker" cx="0" cy="0" r="8" style="display:none;"/>
+                            </svg>
+
+                            <!-- BACK VIEW SVG -->
+                            <svg id="body-back" class="body-svg hidden" viewBox="0 0 200 480" width="200" height="480" xmlns="http://www.w3.org/2000/svg">
+                                <ellipse class="body-region" data-region="Затылок / Голова (сзади)" cx="100" cy="45" rx="32" ry="38" onclick="selectBodyRegion(event, this)"/>
+                                <rect class="body-region" data-region="Шея (сзади)" x="88" y="80" width="24" height="22" rx="4" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Спина" d="M60,100 L140,100 L145,220 L55,220 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Правая рука (сзади)" d="M140,105 L175,115 L185,200 L165,205 L150,130 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Левая рука (сзади)" d="M60,105 L25,115 L15,200 L35,205 L50,130 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Правая нога (сзади)" d="M105,220 L140,220 L145,400 L120,410 L110,230 Z" onclick="selectBodyRegion(event, this)"/>
+                                <path class="body-region" data-region="Левая нога (сзади)" d="M95,220 L60,220 L55,400 L80,410 L90,230 Z" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Правая стопа (сзади)" cx="132" cy="420" rx="18" ry="12" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Левая стопа (сзади)" cx="68" cy="420" rx="18" ry="12" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Правая кисть (сзади)" cx="175" cy="215" rx="12" ry="10" onclick="selectBodyRegion(event, this)"/>
+                                <ellipse class="body-region" data-region="Левая кисть (сзади)" cx="25" cy="215" rx="12" ry="10" onclick="selectBodyRegion(event, this)"/>
+                                <circle id="marker-back" class="mole-marker" cx="0" cy="0" r="8" style="display:none;"/>
+                            </svg>
+                        </div>
+
+                        <div id="selected-region" class="mt-3 text-center text-sm font-semibold text-brand-700 min-h-[24px]">
+                            <span class="text-gray-400">Выберите участок на макете</span>
+                        </div>
+                        <input type="hidden" id="mole-location" value="">
+                    </div>
+
+                    <button onclick="goToStep(2)" class="w-full bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-brand-600/20 transition">
+                        Далее: Съёмка / Загрузка <i class="fa-solid fa-arrow-right ml-2"></i>
+                    </button>
+                </div>
+
+                <!-- Шаг 2: Камера + Загрузка фото -->
+                <div id="step-2" class="hidden space-y-6">
+                    <!-- Переключатель источника -->
+                    <div class="flex gap-2 p-1 bg-gray-100 rounded-xl">
+                        <button type="button" id="tab-camera" class="source-tab active flex-1 py-2.5 rounded-lg text-sm font-bold border-2 border-transparent transition" onclick="switchPhotoSource('camera')">
+                            <i class="fa-solid fa-camera mr-1"></i> Камера
+                        </button>
+                        <button type="button" id="tab-file" class="source-tab flex-1 py-2.5 rounded-lg text-sm font-bold border-2 border-transparent text-gray-600 transition" onclick="switchPhotoSource('file')">
+                            <i class="fa-solid fa-image mr-1"></i> Из файла
+                        </button>
+                    </div>
+
+                    <!-- Памятка по съемке -->
+                    <div class="grid grid-cols-3 gap-3 bg-blue-50/50 p-4 rounded-2xl border border-blue-100 text-center text-xs font-medium text-gray-700">
+                        <div class="flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-sun text-amber-500 text-lg"></i> Дневной свет
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-ruler text-brand-500 text-lg"></i> 10–15 см
+                        </div>
+                        <div class="flex flex-col items-center gap-1">
+                            <i class="fa-solid fa-bolt-lightning text-gray-400 text-lg"></i> Без вспышки
+                        </div>
+                    </div>
+
+                    <!-- РЕЖИМ КАМЕРЫ -->
+                    <div id="camera-mode" class="space-y-4">
+                        <div class="camera-container" id="camera-box">
+                            <video id="camera-video" class="camera-video" playsinline autoplay muted></video>
+                            <canvas id="camera-canvas" class="camera-canvas hidden"></canvas>
+                            
+                            <!-- Оверлей с диаграммой -->
+                            <div class="camera-overlay" id="camera-overlay">
+                                <div class="guide-circle"></div>
+                                <div class="guide-crosshair"></div>
+                                <div class="ruler-scale"></div>
+                                
+                                <!-- ABCDE метки вокруг круга -->
+                                <span class="abcde-label" style="top: 18%; left: 50%; transform: translateX(-50%);">A · Асимметрия</span>
+                                <span class="abcde-label" style="top: 38%; right: 8%;">B · Край</span>
+                                <span class="abcde-label" style="bottom: 38%; right: 8%;">C · Цвет</span>
+                                <span class="abcde-label" style="bottom: 18%; left: 50%; transform: translateX(-50%);">D · Диаметр</span>
+                                <span class="abcde-label" style="top: 38%; left: 8%;">E · Эволюция</span>
+
+                                <!-- Точки детекции (появляются после «анализа») -->
+                                <div id="detect-points" class="hidden">
+                                    <div class="detect-point" style="top: 42%; left: 48%;"></div>
+                                    <div class="detect-point" style="top: 38%; left: 58%;"></div>
+                                    <div class="detect-point" style="top: 52%; left: 62%;"></div>
+                                    <div class="detect-point" style="top: 58%; left: 55%;"></div>
+                                    <div class="detect-point" style="top: 56%; left: 44%;"></div>
+                                    <div class="detect-point" style="top: 48%; left: 40%;"></div>
+                                    <div class="detect-point" style="top: 44%; left: 52%;"></div>
+                                </div>
+
+                                <!-- Живая сканирующая линия -->
+                                <div class="live-scan-line" id="live-scan"></div>
+                            </div>
+
+                            <!-- Статус -->
+                            <div class="camera-status">
+                                <span class="status-pill" id="cam-status">Камера выкл.</span>
+                                <span class="status-pill" id="detect-status">Наведите на родинку</span>
+                            </div>
+
+                            <!-- Вспышка при съёмке -->
+                            <div class="capture-flash" id="capture-flash"></div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-3 justify-center">
+                            <button type="button" id="btn-start-cam" onclick="startCamera()" class="px-5 py-3 rounded-xl bg-brand-600 hover:bg-brand-700 text-white font-bold text-sm shadow-lg shadow-brand-600/20 transition">
+                                <i class="fa-solid fa-video mr-1"></i> Включить камеру
+                            </button>
+                            <button type="button" id="btn-capture" onclick="capturePhoto()" disabled class="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-lg shadow-emerald-600/20 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-camera mr-1"></i> Сфотографировать
+                            </button>
+                            <button type="button" id="btn-stop-cam" onclick="stopCamera()" class="px-5 py-3 rounded-xl bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold text-sm transition hidden">
+                                <i class="fa-solid fa-stop mr-1"></i> Выключить
+                            </button>
+                            <button type="button" id="btn-switch-cam" onclick="switchCameraFacing()" class="px-4 py-3 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-sm transition hidden" title="Переключить камеру">
+                                <i class="fa-solid fa-camera-rotate"></i>
+                            </button>
+                        </div>
+
+                        <p id="camera-error" class="text-center text-sm text-rose-600 font-semibold hidden"></p>
+                    </div>
+
+                    <!-- РЕЖИМ ФАЙЛА -->
+                    <div id="file-mode" class="hidden">
+                        <div class="border-2 border-dashed border-gray-300 hover:border-brand-500 rounded-2xl p-8 text-center bg-white cursor-pointer transition relative" onclick="document.getElementById('file-input').click()">
+                            <input type="file" id="file-input" class="hidden" accept="image/*" onchange="handleFileUpload(event)">
+                            <div id="upload-placeholder">
+                                <i class="fa-solid fa-cloud-arrow-up text-4xl text-brand-500 mb-3"></i>
+                                <p class="font-bold text-gray-800">Нажмите для загрузки или перетащите фото</p>
+                                <p class="text-xs text-gray-400 mt-1">Поддерживаются PNG, JPG до 10MB</p>
+                            </div>
+                            <div id="upload-preview" class="hidden">
+                                <img id="preview-img" class="max-h-48 mx-auto rounded-xl shadow-md mb-3" alt="Превью">
+                                <p class="text-xs text-emerald-600 font-bold"><i class="fa-solid fa-circle-check"></i> Изображение загружено</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Общее превью после снимка/загрузки -->
+                    <div id="captured-preview" class="hidden space-y-3">
+                        <div class="relative max-w-xs mx-auto rounded-2xl overflow-hidden border-2 border-brand-500 shadow-lg">
+                            <img id="final-preview-img" class="w-full h-auto" alt="Снимок родинки">
+                            <div class="absolute top-2 left-2 px-2 py-1 bg-emerald-600 text-white text-[10px] font-bold rounded-lg">
+                                <i class="fa-solid fa-check mr-1"></i> Готово к анализу
+                            </div>
+                        </div>
+                        <p class="text-center text-xs text-gray-500">Можете переснять или выбрать другое фото</p>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button onclick="goToStep(1); stopCamera();" class="w-1/3 bg-gray-200 hover:bg-gray-300 text-gray-700 py-4 rounded-xl font-bold transition">Назад</button>
+                        <button id="analyze-btn" disabled onclick="goToStep(3)" class="w-2/3 bg-gray-300 text-white py-4 rounded-xl font-bold text-lg transition cursor-not-allowed">
+                            Далее: Симптомы <i class="fa-solid fa-arrow-right ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Шаг 3: Симптомы и изменения -->
+                <div id="step-3" class="hidden space-y-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-gray-900 mb-1">Есть ли изменения или симптомы?</h3>
+                        <p class="text-sm text-gray-500 mb-4">Отметьте всё, что относится к этой родинке (можно несколько)</p>
+                        
+                        <div class="grid sm:grid-cols-2 gap-3" id="symptoms-grid">
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="change" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-arrows-rotate text-brand-500 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Изменилась за последние месяцы</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">Размер, форма или цвет</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="itch" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-hand-dots text-amber-500 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Зуд или жжение</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">Периодически или постоянно</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="bleed" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-droplet text-rose-500 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Кровоточивость / корочка</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">Без травмы или после лёгкого касания</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="pain" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-bolt text-orange-500 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Боль или чувствительность</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">При нажатии или спонтанно</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="new" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-plus text-emerald-500 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Появилась недавно</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">В течение последних 6–12 месяцев</p>
+                                    </div>
+                                </div>
+                            </button>
+                            <button type="button" class="symptom-card p-4 rounded-xl border-2 border-gray-200 bg-white text-left transition" data-symptom="none" onclick="toggleSymptom(this)">
+                                <div class="flex items-start gap-3">
+                                    <i class="fa-solid fa-circle-check text-gray-400 mt-0.5"></i>
+                                    <div>
+                                        <p class="font-bold text-sm text-gray-800">Ничего из перечисленного</p>
+                                        <p class="text-xs text-gray-500 mt-0.5">Стабильна, без симптомов</p>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-2">Как давно вы замечаете эту родинку?</label>
+                        <select id="mole-duration" class="w-full p-3 rounded-xl border-2 border-gray-200 bg-white font-semibold text-sm focus:border-brand-500 outline-none">
+                            <option value="unknown">Не помню / не уверен(а)</option>
+                            <option value="years">Много лет (с детства или >5 лет)</option>
+                            <option value="1-5">1–5 лет</option>
+                            <option value="months">Несколько месяцев</option>
+                            <option value="weeks">Несколько недель</option>
+                        </select>
+                    </div>
+
+                    <div class="flex gap-4">
+                        <button onclick="goToStep(2)" class="w-1/3 bg-gray-200 hover:bg-gray-300 text-gray-700 py-4 rounded-xl font-bold transition">Назад</button>
+                        <button onclick="startAnalysis()" class="w-2/3 bg-brand-600 hover:bg-brand-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-brand-600/20 transition">
+                            Запустить ИИ-анализ <i class="fa-solid fa-brain ml-1"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Шаг 4: Экран ожидания и результатов -->
+                <div id="step-4" class="hidden text-center space-y-6">
+                    <!-- Анимация загрузки -->
+                    <div id="analysis-loading" class="py-12">
+                        <div class="inline-block relative w-20 h-20 mb-4">
+                            <div class="w-20 h-20 rounded-full border-4 border-brand-200 border-t-brand-600 animate-spin"></div>
+                        </div>
+                        <h3 class="text-xl font-bold text-gray-900 mb-2">Нейросеть ConvNeXt-Swin анализирует пиксели...</h3>
+                        <p id="analysis-status" class="text-sm font-semibold text-brand-600 animate-pulse">Оценка асимметрии и градиента краев...</p>
+                        <div class="mt-6 max-w-xs mx-auto space-y-2 text-left text-xs font-medium text-gray-500">
+                            <div class="flex items-center gap-2" id="load-step-1-wrap"><i class="fa-solid fa-circle-notch fa-spin text-brand-500"></i> <span id="load-step-1">Колориметрия ITA...</span></div>
+                            <div class="flex items-center gap-2 opacity-40" id="load-step-2-wrap"><i class="fa-solid fa-circle text-[6px]"></i> <span id="load-step-2">Удаление артефактов (волосы)...</span></div>
+                            <div class="flex items-center gap-2 opacity-40" id="load-step-3-wrap"><i class="fa-solid fa-circle text-[6px]"></i> <span id="load-step-3">Сегментация и точки контура...</span></div>
+                            <div class="flex items-center gap-2 opacity-40" id="load-step-4-wrap"><i class="fa-solid fa-circle text-[6px]"></i> <span id="load-step-4">Grad-CAM + ABCDE scoring...</span></div>
+                        </div>
+                    </div>
+
+                    <!-- Результаты -->
+                    <div id="analysis-results" class="hidden text-left space-y-6">
+                        <!-- Динамическая карточка риска -->
+                        <div id="risk-card" class="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div>
+                                <span id="risk-label" class="text-xs font-bold text-amber-700 uppercase tracking-wider">Уровень риска</span>
+                                <h4 id="risk-title" class="text-2xl font-black text-amber-900">Умеренный риск (Moderate)</h4>
+                                <p id="risk-desc" class="text-xs text-amber-800 mt-1">Рекомендуется очный осмотр дерматолога в ближайшие 2–4 недели</p>
+                            </div>
+                            <span id="risk-badge" class="px-4 py-2 bg-amber-500 text-white font-bold text-sm rounded-xl whitespace-nowrap">Требуется очный осмотр</span>
+                        </div>
+
+                        <!-- Локализация -->
+                        <div id="result-location" class="p-3 bg-sky-50 border border-sky-200 rounded-xl text-sm font-semibold text-sky-800 hidden">
+                            <i class="fa-solid fa-map-pin mr-1"></i> Локализация: <span id="result-location-text"></span>
+                        </div>
+
+                        <!-- Симптомы в результате -->
+                        <div id="result-symptoms" class="hidden p-3 bg-rose-50 border border-rose-200 rounded-xl text-sm">
+                            <p class="font-bold text-rose-800 mb-1"><i class="fa-solid fa-triangle-exclamation mr-1"></i> Отмеченные факторы риска:</p>
+                            <ul id="result-symptoms-list" class="text-xs text-rose-700 list-disc list-inside space-y-0.5"></ul>
+                        </div>
+
+                        <!-- Ваш снимок + разметка рисков -->
+                        <div class="bg-white p-4 rounded-2xl border border-gray-200">
+                            <h5 class="text-sm font-bold text-gray-800 mb-2">
+                                <i class="fa-solid fa-image text-brand-600"></i> Ваш снимок с разметкой рисков
+                            </h5>
+                            <p class="text-xs text-gray-500 mb-3">
+                                Красные зоны и точки — области повышенного внимания (неровный край, атипичная пигментация). Зелёные — относительно благоприятные признаки.
+                            </p>
+                            <div class="relative max-w-xs mx-auto rounded-xl overflow-hidden border-2 border-gray-200 shadow-md">
+                                <img id="result-img" src="" class="w-full h-auto bg-gray-100" alt="Ваш снимок родинки">
+                                <!-- Полупрозрачный heatmap-оверлей (риск) -->
+                                <div id="risk-heatmap" class="absolute inset-0 pointer-events-none" style="background: linear-gradient(135deg, rgba(239,68,68,0.35) 0%, rgba(251,191,36,0.15) 45%, transparent 70%);"></div>
+                                <!-- Точки контура / риска -->
+                                <div id="result-points">
+                                    <div class="detect-point" style="top: 40%; left: 46%; background:#ef4444;"></div>
+                                    <div class="detect-point" style="top: 36%; left: 57%; background:#ef4444;"></div>
+                                    <div class="detect-point" style="top: 50%; left: 63%; background:#f59e0b;"></div>
+                                    <div class="detect-point" style="top: 58%; left: 54%; background:#ef4444;"></div>
+                                    <div class="detect-point" style="top: 55%; left: 42%; background:#f59e0b;"></div>
+                                    <div class="detect-point" style="top: 47%; left: 38%; background:#22c55e;"></div>
+                                    <div class="detect-point" style="top: 43%; left: 51%; background:#ef4444;"></div>
+                                </div>
+                                <!-- Легенда на картинке -->
+                                <div class="absolute bottom-2 left-2 right-2 flex flex-wrap gap-1.5 justify-center pointer-events-none">
+                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-red-600/90 text-white">● Высокий риск</span>
+                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-amber-500/90 text-white">● Средний</span>
+                                    <span class="px-2 py-0.5 rounded text-[9px] font-bold bg-emerald-600/90 text-white">● Низкий</span>
+                                </div>
+                            </div>
+                            <p id="no-photo-warn" class="hidden text-center text-xs text-rose-600 font-semibold mt-2">
+                                <i class="fa-solid fa-triangle-exclamation"></i> Снимок не загружен — показана только разметка
+                            </p>
+                        </div>
+
+                        <!-- Детализация ABCDE с цветовыми маркерами риска -->
+                        <div class="space-y-3">
+                            <h5 class="text-sm font-bold text-gray-800"><i class="fa-solid fa-list-check text-brand-600"></i> Оценка по критериям ABCDE</h5>
+                            <div class="grid gap-3">
+                                <!-- A -->
+                                <div id="abcde-a" class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div class="flex justify-between items-center text-xs font-bold mb-1">
+                                        <span class="flex items-center gap-2">
+                                            <span class="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">A</span>
+                                            Асимметрия
+                                        </span>
+                                        <span class="text-emerald-700 flex items-center gap-1">
+                                            <i class="fa-solid fa-circle-check"></i> Низкая (22%)
+                                        </span>
+                                    </div>
+                                    <div class="abcde-bar"><div class="abcde-fill bg-emerald-500" style="width:22%"></div></div>
+                                </div>
+                                <!-- B -->
+                                <div id="abcde-b" class="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div class="flex justify-between items-center text-xs font-bold mb-1">
+                                        <span class="flex items-center gap-2">
+                                            <span class="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]">B</span>
+                                            Край (Border)
+                                        </span>
+                                        <span class="text-amber-700 flex items-center gap-1">
+                                            <i class="fa-solid fa-triangle-exclamation"></i> Неровный (61%)
+                                        </span>
+                                    </div>
+                                    <div class="abcde-bar"><div class="abcde-fill bg-amber-500" style="width:61%"></div></div>
+                                </div>
+                                <!-- C -->
+                                <div id="abcde-c" class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div class="flex justify-between items-center text-xs font-bold mb-1">
+                                        <span class="flex items-center gap-2">
+                                            <span class="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">C</span>
+                                            Окрас (Color)
+                                        </span>
+                                        <span class="text-emerald-700 flex items-center gap-1">
+                                            <i class="fa-solid fa-circle-check"></i> Однородный (18%)
+                                        </span>
+                                    </div>
+                                    <div class="abcde-bar"><div class="abcde-fill bg-emerald-500" style="width:18%"></div></div>
+                                </div>
+                                <!-- D -->
+                                <div id="abcde-d" class="p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                                    <div class="flex justify-between items-center text-xs font-bold mb-1">
+                                        <span class="flex items-center gap-2">
+                                            <span class="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px]">D</span>
+                                            Диаметр
+                                        </span>
+                                        <span class="text-emerald-700 flex items-center gap-1">
+                                            <i class="fa-solid fa-circle-check"></i> 4.2 мм
+                                        </span>
+                                    </div>
+                                    <div class="abcde-bar"><div class="abcde-fill bg-emerald-500" style="width:35%"></div></div>
+                                </div>
+                                <!-- E -->
+                                <div id="abcde-e" class="p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                    <div class="flex justify-between items-center text-xs font-bold mb-1">
+                                        <span class="flex items-center gap-2">
+                                            <span id="evol-letter" class="w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]">E</span>
+                                            Эволюция / симптомы
+                                        </span>
+                                        <span id="evol-score" class="text-amber-700 flex items-center gap-1">
+                                            <i class="fa-solid fa-triangle-exclamation"></i> Умеренная
+                                        </span>
+                                    </div>
+                                    <div class="abcde-bar"><div class="abcde-fill bg-amber-500" id="evol-bar" style="width:45%"></div></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Сводка знаков -->
+                        <div class="grid grid-cols-3 gap-2 text-center text-[11px] font-bold">
+                            <div class="p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800">
+                                <i class="fa-solid fa-circle-check text-emerald-500 text-lg block mb-1"></i>
+                                A, C, D — в норме
+                            </div>
+                            <div id="summary-warn" class="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-500 text-lg block mb-1"></i>
+                                B, E — внимание
+                            </div>
+                            <div id="summary-danger" class="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 hidden">
+                                <i class="fa-solid fa-circle-exclamation text-rose-500 text-lg block mb-1"></i>
+                                Есть симптомы
+                            </div>
+                        </div>
+
+                        <div class="p-4 bg-gray-100 rounded-xl text-[11px] text-gray-500 leading-relaxed">
+                            <strong>Отказ от ответственности:</strong> Данная оценка носит исключительно информационный характер и не является постановкой диагноза. Обязательно проконсультируйтесь с врачом-дерматологом. Система учитывает фототип, локализацию и симптомы для калибровки риска, но не заменяет дерматоскопию и биопсию.
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row gap-3">
+                            <a href="https://wa.me/" target="_blank" class="flex-1 text-center bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-600/20 transition">
+                                <i class="fa-brands fa-whatsapp text-xl mr-2"></i> Записаться к дерматологу
+                            </a>
+                            <button onclick="resetScanner()" class="sm:w-auto px-6 py-4 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-bold transition">
+                                <i class="fa-solid fa-rotate-left mr-1"></i> Новый скрининг
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Раздел с преимуществами -->
+    <section id="features" class="py-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="text-center max-w-3xl mx-auto mb-16">
+                <h2 class="text-3xl font-bold text-gray-900 mb-4">Научный и инженерный подход</h2>
+                <p class="text-gray-600">Почему наша система работает эффективнее классических европейских алгоритмов на смуглой коже</p>
+            </div>
+
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="bg-white/90 p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition backdrop-blur-sm">
+                    <div class="w-12 h-12 bg-brand-100 text-brand-600 rounded-2xl flex items-center justify-center text-xl font-bold mb-6">
+                        <i class="fa-solid fa-scale-balanced"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Преодоление AI Bias</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        Стандартные ИИ ошибаются на III-V фототипах. Мы калибруем алгоритмы по колориметрическому углу <strong>ITA (Individual Typology Angle)</strong> в CIE-Lab пространстве.
+                    </p>
+                </div>
+
+                <div class="bg-white/90 p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition backdrop-blur-sm">
+                    <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center text-xl font-bold mb-6">
+                        <i class="fa-solid fa-shoe-prints"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Акральная меланома</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        У азиатских популяций до 58% меланом возникают на ладонях и стопах. Наш нейросетевой модуль обучен распознавать паттерн параллельных гребней.
+                    </p>
+                </div>
+
+                <div class="bg-white/90 p-8 rounded-3xl border border-gray-100 shadow-sm hover:shadow-md transition backdrop-blur-sm">
+                    <div class="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center text-xl font-bold mb-6">
+                        <i class="fa-solid fa-brain"></i>
+                    </div>
+                    <h3 class="text-xl font-bold text-gray-900 mb-3">Гибрид ConvNeXt + Swin</h3>
+                    <p class="text-sm text-gray-600 leading-relaxed">
+                        Свертки улавливают микротекстуру края, а Visual Transformers связывают воедино пространственный контекст всего пятна. Точки контура помогают объяснить решение.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="py-16 bg-white/80 backdrop-blur-sm border-t border-gray-200">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6">
+            <h2 class="text-3xl font-bold text-gray-900 text-center mb-12">Часто задаваемые вопросы</h2>
+            <div class="space-y-4">
+                <details class="group bg-white/90 p-6 rounded-2xl border border-gray-200">
+                    <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none">
+                        <span>Заменяет ли ИИ полноценный визит к врачу?</span>
+                        <span class="transition group-open:rotate-180"><i class="fa-solid fa-chevron-down"></i></span>
+                    </summary>
+                    <p class="text-sm text-gray-600 mt-4 leading-relaxed">
+                        Нет, система создана для первичного скрининга и маршрутизации. При выявлении высокого или среднего риска вам необходимо записаться к врачу-онкодерматологу для дерматоскопии и биопсии.
+                    </p>
+                </details>
+
+                <details class="group bg-white/90 p-6 rounded-2xl border border-gray-200">
+                    <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none">
+                        <span>Можно ли снимать прямо с камеры?</span>
+                        <span class="transition group-open:rotate-180"><i class="fa-solid fa-chevron-down"></i></span>
+                    </summary>
+                    <p class="text-sm text-gray-600 mt-4 leading-relaxed">
+                        Да. На шаге «Съёмка» включите камеру — появится живой превью с направляющим кругом, шкалой ≈10 мм и метками ABCDE. Наведите родинку в центр, дождитесь появления точек контура и нажмите «Сфотографировать». Можно переключать фронтальную и основную камеру.
+                    </p>
+                </details>
+
+                <details class="group bg-white/90 p-6 rounded-2xl border border-gray-200">
+                    <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none">
+                        <span>Как правильно сфотографировать родинку?</span>
+                        <span class="transition group-open:rotate-180"><i class="fa-solid fa-chevron-down"></i></span>
+                    </summary>
+                    <p class="text-sm text-gray-600 mt-4 leading-relaxed">
+                        Снимайте при дневном рассеянном свете, без вспышки. Держите смартфон на расстоянии 10–15 см, убедившись, что родинка находится в фокусе, по центру направляющего круга и не размыта.
+                    </p>
+                </details>
+
+                <details class="group bg-white/90 p-6 rounded-2xl border border-gray-200">
+                    <summary class="flex justify-between items-center font-bold text-gray-900 cursor-pointer list-none">
+                        <span>Зачем указывать расположение родинки на макете тела?</span>
+                        <span class="transition group-open:rotate-180"><i class="fa-solid fa-chevron-down"></i></span>
+                    </summary>
+                    <p class="text-sm text-gray-600 mt-4 leading-relaxed">
+                        Локализация важна для оценки риска. Например, акральные меланомы (на ладонях, стопах, под ногтями) имеют другие признаки и более высокую опасность у людей с III–V фототипами кожи. Это помогает ИИ дать более точную оценку.
+                    </p>
+                </details>
+            </div>
+        </div>
+    </section>
+
+    <!-- Подвал сайта -->
+    <footer class="bg-gray-900 text-gray-400 py-12 border-t border-gray-800">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-6">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">
+                    <i class="fa-solid fa-microscope text-sm"></i>
+                </div>
+                <span class="text-lg font-bold text-white">DermatAI</span>
+            </div>
+            <p class="text-xs text-center md:text-left">
+                © 2026 DermatAI System. Данный ресурс носит исключительно информационный характер.
+            </p>
+        </div>
+    </footer>
+
+    <!-- Скрипты взаимодействия -->
+    <script>
+        let selectedRegionName = '';
+        let currentView = 'front';
+        let mediaStream = null;
+        let currentFacingMode = 'environment';
+        let photoReady = false;
+        let selectedSymptoms = new Set();
+        let capturedImageData = null;
+
+        function selectGender(btn) {
+            document.querySelectorAll('.gender-btn').forEach(b => b.classList.remove('border-brand-500', 'ring-2', 'ring-brand-500/20'));
+            btn.classList.add('border-brand-500', 'ring-2', 'ring-brand-500/20');
+        }
+
+        function selectSkin(btn) {
+            document.querySelectorAll('.skin-btn').forEach(b => b.classList.remove('border-brand-500', 'ring-2', 'ring-brand-500/20'));
+            btn.classList.add('border-brand-500', 'ring-2', 'ring-brand-500/20');
+        }
+
+        function switchBodyView(view) {
+            currentView = view;
+            document.getElementById('body-front').classList.toggle('hidden', view !== 'front');
+            document.getElementById('body-back').classList.toggle('hidden', view !== 'back');
+            document.getElementById('view-front').classList.toggle('active', view === 'front');
+            document.getElementById('view-back').classList.toggle('active', view === 'back');
+        }
+
+        function selectBodyRegion(event, el) {
+            event.stopPropagation();
+            document.querySelectorAll('.body-region').forEach(r => r.classList.remove('selected'));
+            el.classList.add('selected');
+
+            selectedRegionName = el.getAttribute('data-region') || 'Неизвестно';
+            document.getElementById('selected-region').innerHTML = 
+                '<i class="fa-solid fa-check-circle text-emerald-500 mr-1"></i> Выбрано: <strong>' + selectedRegionName + '</strong>';
+            document.getElementById('mole-location').value = selectedRegionName;
+
+            const svg = el.ownerSVGElement;
+            const pt = svg.createSVGPoint();
+            pt.x = event.clientX;
+            pt.y = event.clientY;
+            const ctm = svg.getScreenCTM().inverse();
+            const svgP = pt.matrixTransform(ctm);
+
+            const markerId = currentView === 'front' ? 'marker-front' : 'marker-back';
+            const marker = document.getElementById(markerId);
+            marker.setAttribute('cx', svgP.x);
+            marker.setAttribute('cy', svgP.y);
+            marker.style.display = 'block';
+        }
+
+        function updateStepUI(step) {
+            const label = document.getElementById('step-label');
+            const percent = document.getElementById('step-percent');
+            const bar = document.getElementById('progress-bar');
+            const dots = [
+                document.getElementById('dot-1'),
+                document.getElementById('dot-2'),
+                document.getElementById('dot-3'),
+                document.getElementById('dot-4')
+            ];
+            const labels = ['Профиль', 'Фото', 'Симптомы', 'Результат'];
+
+            dots.forEach((d, i) => {
+                if (i + 1 < step) {
+                    d.innerHTML = '● ' + labels[i];
+                    d.className = 'text-emerald-600';
+                } else if (i + 1 === step) {
+                    d.innerHTML = '● ' + labels[i];
+                    d.className = 'text-brand-600';
+                } else {
+                    d.innerHTML = '○ ' + labels[i];
+                    d.className = 'text-gray-400';
+                }
+            });
+
+            if (step === 1) {
+                label.innerText = 'Шаг 1 из 4: Профиль и Анамнез';
+                percent.innerText = '25%';
+                bar.style.width = '25%';
+            } else if (step === 2) {
+                label.innerText = 'Шаг 2 из 4: Съёмка / Загрузка';
+                percent.innerText = '50%';
+                bar.style.width = '50%';
+            } else if (step === 3) {
+                label.innerText = 'Шаг 3 из 4: Симптомы';
+                percent.innerText = '75%';
+                bar.style.width = '75%';
+            } else if (step === 4) {
+                label.innerText = 'Шаг 4 из 4: ИИ-Анализ и Результат';
+                percent.innerText = '100%';
+                bar.style.width = '100%';
+            }
+        }
+
+        function goToStep(step) {
+            for (let i = 1; i <= 4; i++) {
+                document.getElementById('step-' + i).classList.add('hidden');
+            }
+            document.getElementById('step-' + step).classList.remove('hidden');
+            updateStepUI(step);
+
+            if (step === 2) {
+                switchPhotoSource('camera');
+            }
+            if (step !== 2) {
+                stopCamera();
+            }
+        }
+
+        function switchPhotoSource(mode) {
+            const camTab = document.getElementById('tab-camera');
+            const fileTab = document.getElementById('tab-file');
+            const camMode = document.getElementById('camera-mode');
+            const fileMode = document.getElementById('file-mode');
+
+            if (mode === 'camera') {
+                camTab.classList.add('active');
+                camTab.classList.remove('text-gray-600');
+                fileTab.classList.remove('active');
+                fileTab.classList.add('text-gray-600');
+                camMode.classList.remove('hidden');
+                fileMode.classList.add('hidden');
+            } else {
+                fileTab.classList.add('active');
+                fileTab.classList.remove('text-gray-600');
+                camTab.classList.remove('active');
+                camTab.classList.add('text-gray-600');
+                fileMode.classList.remove('hidden');
+                camMode.classList.add('hidden');
+                stopCamera();
+            }
+        }
+
+        async function startCamera() {
+            const errEl = document.getElementById('camera-error');
+            errEl.classList.add('hidden');
+            errEl.innerText = '';
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                errEl.innerText = 'Ваш браузер не поддерживает доступ к камере. Используйте загрузку из файла.';
+                errEl.classList.remove('hidden');
+                return;
+            }
+
+            try {
+                stopCamera();
+                const constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: { ideal: currentFacingMode },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+                const video = document.getElementById('camera-video');
+                video.srcObject = mediaStream;
+                await video.play();
+
+                document.getElementById('cam-status').innerText = '● LIVE';
+                document.getElementById('cam-status').classList.add('live');
+                document.getElementById('detect-status').innerText = 'Наведите родинку в круг';
+                document.getElementById('btn-start-cam').classList.add('hidden');
+                document.getElementById('btn-capture').disabled = false;
+                document.getElementById('btn-stop-cam').classList.remove('hidden');
+                document.getElementById('btn-switch-cam').classList.remove('hidden');
+                document.getElementById('live-scan').style.display = 'block';
+                document.getElementById('detect-points').classList.add('hidden');
+
+                setTimeout(() => {
+                    if (mediaStream) {
+                        document.getElementById('detect-points').classList.remove('hidden');
+                        document.getElementById('detect-status').innerText = 'Точки контура обнаружены';
+                    }
+                }, 2500);
+
+            } catch (err) {
+                console.error(err);
+                let msg = 'Не удалось получить доступ к камере. ';
+                if (err.name === 'NotAllowedError') msg += 'Разрешите доступ в настройках браузера.';
+                else if (err.name === 'NotFoundError') msg += 'Камера не найдена.';
+                else msg += 'Попробуйте загрузить фото из файла.';
+                errEl.innerText = msg;
+                errEl.classList.remove('hidden');
+            }
+        }
+
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(t => t.stop());
+                mediaStream = null;
+            }
+            const video = document.getElementById('camera-video');
+            if (video) video.srcObject = null;
+
+            const camStatus = document.getElementById('cam-status');
+            if (camStatus) {
+                camStatus.innerText = 'Камера выкл.';
+                camStatus.classList.remove('live');
+            }
+            const detectStatus = document.getElementById('detect-status');
+            if (detectStatus) detectStatus.innerText = 'Наведите на родинку';
+            const btnStart = document.getElementById('btn-start-cam');
+            if (btnStart) btnStart.classList.remove('hidden');
+            const btnCapture = document.getElementById('btn-capture');
+            if (btnCapture) btnCapture.disabled = true;
+            const btnStop = document.getElementById('btn-stop-cam');
+            if (btnStop) btnStop.classList.add('hidden');
+            const btnSwitch = document.getElementById('btn-switch-cam');
+            if (btnSwitch) btnSwitch.classList.add('hidden');
+            const liveScan = document.getElementById('live-scan');
+            if (liveScan) liveScan.style.display = 'none';
+            const detectPts = document.getElementById('detect-points');
+            if (detectPts) detectPts.classList.add('hidden');
+        }
+
+        async function switchCameraFacing() {
+            currentFacingMode = currentFacingMode === 'environment' ? 'user' : 'environment';
+            await startCamera();
+        }
+
+        function capturePhoto() {
+            const video = document.getElementById('camera-video');
+            const canvas = document.getElementById('camera-canvas');
+            if (!video || !mediaStream) return;
+
+            const flash = document.getElementById('capture-flash');
+            flash.classList.add('active');
+            setTimeout(() => flash.classList.remove('active'), 150);
+
+            const w = video.videoWidth || 640;
+            const h = video.videoHeight || 480;
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, w, h);
+
+            capturedImageData = canvas.toDataURL('image/jpeg', 0.92);
+            showCapturedPreview(capturedImageData);
+            enableAnalyzeBtn();
+            stopCamera();
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                capturedImageData = e.target.result;
+                document.getElementById('preview-img').src = capturedImageData;
+                document.getElementById('upload-placeholder').classList.add('hidden');
+                document.getElementById('upload-preview').classList.remove('hidden');
+                showCapturedPreview(capturedImageData);
+                enableAnalyzeBtn();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function showCapturedPreview(dataUrl) {
+            const box = document.getElementById('captured-preview');
+            const img = document.getElementById('final-preview-img');
+            img.src = dataUrl;
+            box.classList.remove('hidden');
+            const resImg = document.getElementById('result-img');
+            if (resImg) resImg.src = dataUrl;
+        }
+
+        function enableAnalyzeBtn() {
+            photoReady = true;
+            const btn = document.getElementById('analyze-btn');
+            btn.disabled = false;
+            btn.classList.remove('bg-gray-300', 'cursor-not-allowed');
+            btn.classList.add('bg-brand-600', 'hover:bg-brand-700', 'shadow-lg', 'shadow-brand-600/20');
+        }
+
+        function toggleSymptom(btn) {
+            const key = btn.getAttribute('data-symptom');
+            if (key === 'none') {
+                document.querySelectorAll('.symptom-card').forEach(c => {
+                    c.classList.remove('selected');
+                });
+                selectedSymptoms.clear();
+                btn.classList.add('selected');
+                selectedSymptoms.add('none');
+            } else {
+                const noneBtn = document.querySelector('.symptom-card[data-symptom="none"]');
+                if (noneBtn) noneBtn.classList.remove('selected');
+                selectedSymptoms.delete('none');
+
+                if (btn.classList.contains('selected')) {
+                    btn.classList.remove('selected');
+                    selectedSymptoms.delete(key);
+                } else {
+                    btn.classList.add('selected');
+                    selectedSymptoms.add(key);
+                }
+            }
+        }
+
+        function startAnalysis() {
+            goToStep(4);
+            document.getElementById('analysis-loading').classList.remove('hidden');
+            document.getElementById('analysis-results').classList.add('hidden');
+
+            const statuses = [
+                "Расчет колориметрического угла ITA...",
+                "Применение фильтра удаления волос DullRazor...",
+                "Сегментация и извлечение точек контура...",
+                "Анализ краев и градиента (Border Irregularity)...",
+                "Генерация тепловой карты Grad-CAM + ABCDE scoring..."
+            ];
+
+            ['load-step-1','load-step-2','load-step-3','load-step-4'].forEach((id, i) => {
+                const wrap = document.getElementById(id + '-wrap');
+                if (!wrap) return;
+                if (i === 0) {
+                    wrap.classList.remove('opacity-40');
+                    wrap.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin text-brand-500';
+                } else {
+                    wrap.classList.add('opacity-40');
+                    wrap.querySelector('i').className = 'fa-solid fa-circle text-[6px]';
+                }
+            });
+
+            let idx = 0;
+            const statusEl = document.getElementById('analysis-status');
+            statusEl.innerText = statuses[0];
+
+            const interval = setInterval(() => {
+                idx++;
+                if (idx < statuses.length) {
+                    statusEl.innerText = statuses[idx];
+                    if (idx >= 1) {
+                        const wrap = document.getElementById('load-step-2-wrap');
+                        if (wrap) {
+                            wrap.classList.remove('opacity-40');
+                            wrap.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin text-brand-500';
+                        }
+                    }
+                    if (idx >= 2) {
+                        const wrap = document.getElementById('load-step-3-wrap');
+                        if (wrap) {
+                            wrap.classList.remove('opacity-40');
+                            wrap.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin text-brand-500';
+                        }
+                    }
+                    if (idx >= 3) {
+                        const wrap = document.getElementById('load-step-4-wrap');
+                        if (wrap) {
+                            wrap.classList.remove('opacity-40');
+                            wrap.querySelector('i').className = 'fa-solid fa-circle-notch fa-spin text-brand-500';
+                        }
+                    }
+                } else {
+                    clearInterval(interval);
+                    ['load-step-1','load-step-2','load-step-3','load-step-4'].forEach(id => {
+                        const wrap = document.getElementById(id + '-wrap');
+                        if (wrap) {
+                            wrap.classList.remove('opacity-40');
+                            wrap.querySelector('i').className = 'fa-solid fa-check text-emerald-500';
+                        }
+                    });
+                    setTimeout(() => {
+                        document.getElementById('analysis-loading').classList.add('hidden');
+                        document.getElementById('analysis-results').classList.remove('hidden');
+                        populateResults();
+                    }, 400);
+                }
+            }, 900);
+        }
+
+        function populateResults() {
+            // 1. Всегда показываем загруженный/снятый снимок пользователя
+            const resultImg = document.getElementById('result-img');
+            const noPhotoWarn = document.getElementById('no-photo-warn');
+            if (capturedImageData) {
+                resultImg.src = capturedImageData;
+                resultImg.classList.remove('bg-gray-200');
+                if (noPhotoWarn) noPhotoWarn.classList.add('hidden');
+            } else {
+                resultImg.src = '';
+                resultImg.alt = 'Снимок не загружен';
+                if (noPhotoWarn) noPhotoWarn.classList.remove('hidden');
+            }
+
+            // 2. Локализация
+            if (selectedRegionName) {
+                document.getElementById('result-location').classList.remove('hidden');
+                document.getElementById('result-location-text').innerText = selectedRegionName;
+            } else {
+                document.getElementById('result-location').classList.add('hidden');
+            }
+
+            // 3. Симптомы и динамический уровень риска
+            const symBox = document.getElementById('result-symptoms');
+            const symList = document.getElementById('result-symptoms-list');
+            const labels = {
+                change: 'Изменение размера/формы/цвета',
+                itch: 'Зуд или жжение',
+                bleed: 'Кровоточивость / корочка',
+                pain: 'Боль или чувствительность',
+                new: 'Появилась недавно'
+            };
+            const active = [...selectedSymptoms].filter(s => s !== 'none');
+            const hasHighRiskSymptoms = active.some(s => s === 'bleed' || s === 'change' || s === 'new');
+            const symptomCount = active.length;
+
+            const riskCard = document.getElementById('risk-card');
+            const riskLabel = document.getElementById('risk-label');
+            const riskTitle = document.getElementById('risk-title');
+            const riskDesc = document.getElementById('risk-desc');
+            const riskBadge = document.getElementById('risk-badge');
+            const evolScore = document.getElementById('evol-score');
+            const evolBar = document.getElementById('evol-bar');
+            const evolLetter = document.getElementById('evol-letter');
+            const abcdeE = document.getElementById('abcde-e');
+            const summaryDanger = document.getElementById('summary-danger');
+            const summaryWarn = document.getElementById('summary-warn');
+            const riskHeatmap = document.getElementById('risk-heatmap');
+
+            if (symptomCount > 0) {
+                symList.innerHTML = active.map(s => '<li>' + (labels[s] || s) + '</li>').join('');
+                symBox.classList.remove('hidden');
+
+                // Усиливаем критерий E
+                const eWidth = Math.min(40 + symptomCount * 16, 95);
+                evolBar.style.width = eWidth + '%';
+
+                if (hasHighRiskSymptoms || symptomCount >= 3) {
+                    // Высокий риск — красный
+                    riskCard.className = 'p-4 bg-rose-50 border border-rose-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+                    riskLabel.className = 'text-xs font-bold text-rose-700 uppercase tracking-wider';
+                    riskTitle.className = 'text-2xl font-black text-rose-900';
+                    riskTitle.innerText = 'Повышенный риск (Elevated)';
+                    riskDesc.className = 'text-xs text-rose-800 mt-1';
+                    riskDesc.innerText = 'Рекомендуется очный осмотр дерматолога в ближайшие дни. Не откладывайте.';
+                    riskBadge.className = 'px-4 py-2 bg-rose-600 text-white font-bold text-sm rounded-xl whitespace-nowrap';
+                    riskBadge.innerText = 'Срочный осмотр';
+
+                    evolScore.className = 'text-rose-700 flex items-center gap-1';
+                    evolScore.innerHTML = '<i class="fa-solid fa-circle-exclamation"></i> Высокая';
+                    evolBar.className = 'abcde-fill bg-rose-500';
+                    if (evolLetter) evolLetter.className = 'w-5 h-5 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px]';
+                    if (abcdeE) abcdeE.className = 'p-3 bg-rose-50 border border-rose-300 rounded-xl';
+
+                    if (summaryDanger) summaryDanger.classList.remove('hidden');
+                    if (summaryWarn) summaryWarn.classList.add('hidden');
+                    if (riskHeatmap) riskHeatmap.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.5) 0%, rgba(239,68,68,0.25) 40%, rgba(251,191,36,0.15) 70%, transparent 90%)';
+                } else {
+                    // Умеренный / повышенный из-за симптомов — янтарный/розовый
+                    riskCard.className = 'p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+                    riskLabel.className = 'text-xs font-bold text-amber-700 uppercase tracking-wider';
+                    riskTitle.className = 'text-2xl font-black text-amber-900';
+                    riskTitle.innerText = 'Умеренный риск (Moderate)';
+                    riskDesc.className = 'text-xs text-amber-800 mt-1';
+                    riskDesc.innerText = 'Рекомендуется очный осмотр дерматолога в ближайшие 1–2 недели.';
+                    riskBadge.className = 'px-4 py-2 bg-amber-500 text-white font-bold text-sm rounded-xl whitespace-nowrap';
+                    riskBadge.innerText = 'Требуется очный осмотр';
+
+                    evolScore.className = 'text-amber-700 flex items-center gap-1';
+                    evolScore.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Повышенная';
+                    evolBar.className = 'abcde-fill bg-amber-500';
+                    if (evolLetter) evolLetter.className = 'w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]';
+                    if (abcdeE) abcdeE.className = 'p-3 bg-amber-50 border border-amber-200 rounded-xl';
+
+                    if (summaryDanger) summaryDanger.classList.add('hidden');
+                    if (summaryWarn) {
+                        summaryWarn.classList.remove('hidden');
+                        summaryWarn.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-amber-500 text-lg block mb-1"></i> B, E — внимание';
+                    }
+                    if (riskHeatmap) riskHeatmap.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.35) 0%, rgba(251,191,36,0.2) 45%, transparent 75%)';
+                }
+            } else {
+                // Нет симптомов — умеренный базовый риск (из-за неровного края B)
+                symBox.classList.add('hidden');
+                riskCard.className = 'p-4 bg-amber-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3';
+                riskLabel.className = 'text-xs font-bold text-amber-700 uppercase tracking-wider';
+                riskTitle.className = 'text-2xl font-black text-amber-900';
+                riskTitle.innerText = 'Умеренный риск (Moderate)';
+                riskDesc.className = 'text-xs text-amber-800 mt-1';
+                riskDesc.innerText = 'Рекомендуется очный осмотр дерматолога в ближайшие 2–4 недели';
+                riskBadge.className = 'px-4 py-2 bg-amber-500 text-white font-bold text-sm rounded-xl whitespace-nowrap';
+                riskBadge.innerText = 'Требуется очный осмотр';
+
+                evolScore.className = 'text-amber-700 flex items-center gap-1';
+                evolScore.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i> Умеренная';
+                evolBar.style.width = '45%';
+                evolBar.className = 'abcde-fill bg-amber-500';
+                if (evolLetter) evolLetter.className = 'w-5 h-5 rounded-full bg-amber-500 text-white flex items-center justify-center text-[10px]';
+                if (abcdeE) abcdeE.className = 'p-3 bg-amber-50 border border-amber-200 rounded-xl';
+
+                if (summaryDanger) summaryDanger.classList.add('hidden');
+                if (summaryWarn) {
+                    summaryWarn.classList.remove('hidden');
+                    summaryWarn.innerHTML = '<i class="fa-solid fa-triangle-exclamation text-amber-500 text-lg block mb-1"></i> B, E — внимание';
+                }
+                if (riskHeatmap) riskHeatmap.style.background = 'linear-gradient(135deg, rgba(239,68,68,0.3) 0%, rgba(251,191,36,0.15) 45%, transparent 70%)';
+            }
+        }
+
+        function resetScanner() {
+            stopCamera();
+            selectedRegionName = '';
+            photoReady = false;
+            selectedSymptoms.clear();
+            capturedImageData = null;
+            document.getElementById('mole-location').value = '';
+            document.getElementById('selected-region').innerHTML = '<span class="text-gray-400">Выберите участок на макете</span>';
+            document.querySelectorAll('.body-region').forEach(r => r.classList.remove('selected'));
+            document.getElementById('marker-front').style.display = 'none';
+            document.getElementById('marker-back').style.display = 'none';
+            document.getElementById('captured-preview').classList.add('hidden');
+            document.getElementById('upload-placeholder').classList.remove('hidden');
+            document.getElementById('upload-preview').classList.add('hidden');
+            document.getElementById('file-input').value = '';
+            document.querySelectorAll('.symptom-card').forEach(c => c.classList.remove('selected'));
+            const btn = document.getElementById('analyze-btn');
+            btn.disabled = true;
+            btn.classList.add('bg-gray-300', 'cursor-not-allowed');
+            btn.classList.remove('bg-brand-600', 'hover:bg-brand-700', 'shadow-lg', 'shadow-brand-600/20');
+            goToStep(1);
+        }
+
+        window.addEventListener('beforeunload', stopCamera);
+    </script>
+</body>
+</html>
